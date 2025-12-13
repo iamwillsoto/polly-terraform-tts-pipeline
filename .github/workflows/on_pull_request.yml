@@ -19,27 +19,35 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
-      - name: Configure AWS Credentials (OIDC)
+      - name: Configure AWS (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Terraform Init
+      - name: Terraform Init (beta backend)
         working-directory: infra
-        run: terraform init
+        run: terraform init -input=false -reconfigure -backend-config=backend-beta.hcl
+
+      - name: Terraform Validate
+        working-directory: infra
+        run: terraform validate
 
       - name: Terraform Apply (beta)
         working-directory: infra
         run: |
-          terraform apply -auto-approve \
-            -var-file=beta.tfvars
+          terraform apply -auto-approve -input=false \
+            -var-file=beta.tfvars \
+            -var="bucket_name=${{ secrets.S3_BUCKET_NAME }}"
 
       - name: Invoke Beta Endpoint
         working-directory: infra
         run: |
-          sudo apt-get update && sudo apt-get install -y jq
           API=$(terraform output -raw api_invoke_url)
-          curl -sS -X POST "${API}/beta/synthesize" \
+          ROUTE=$(terraform output -raw route)
+
+          echo "Invoking: ${API}${ROUTE}"
+
+          curl -sS -X POST "${API}${ROUTE}" \
             -H "content-type: application/json" \
-            -d '{"text":"This is from GitHub Actions (beta)."}' | jq .
+            -d '{"text":"PR beta test: generate audio."}'

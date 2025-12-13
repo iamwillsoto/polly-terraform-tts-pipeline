@@ -33,7 +33,8 @@ jobs:
         working-directory: infra
         run: |
           terraform apply -auto-approve \
-            -var-file=prod.tfvars
+            -var-file=prod.tfvars \
+            -var="bucket_name=${{ secrets.S3_BUCKET_NAME }}"
 
       - name: Invoke Prod Endpoint
         working-directory: infra
