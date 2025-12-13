@@ -25,9 +25,9 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Terraform Init
+      - name: Terraform Init (prod backend)
         working-directory: infra
-        run: terraform init
+        run: terraform init -reconfigure -backend-config=backend-prod.hcl
 
       - name: Terraform Apply (prod)
         working-directory: infra
