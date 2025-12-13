@@ -25,15 +25,16 @@ jobs:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Terraform Init
+      - name: Terraform Init (prod backend)
         working-directory: infra
-        run: terraform init
+        run: terraform init -reconfigure -backend-config=backend-prod.hcl
 
       - name: Terraform Apply (prod)
         working-directory: infra
         run: |
           terraform apply -auto-approve \
-            -var-file=prod.tfvars
+            -var-file=prod.tfvars \
+            -var="bucket_name=${{ secrets.S3_BUCKET_NAME }}"
 
       - name: Invoke Prod Endpoint
         working-directory: infra
