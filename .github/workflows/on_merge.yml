@@ -1,45 +1,45 @@
 name: Deploy + Test (Merge - Prod)
 
 on:
-    push:
-        branches: [ main ]
+  push:
+    branches: [ "main" ]
 
 permissions:
-    id-token: write
-    contents: read
+  id-token: write
+  contents: read
 
 jobs:
-    prod:
-        runs-on: ubuntu latest
+  prod:
+    runs-on: ubuntu-latest
 
-        steps:
-            - uses: action/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-            - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-            - name: Configure AWS (OIDC)
-            - uses: aws-actions/configure-aws-credentials@v4
-              with:
-                role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-                aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-            - name: Terraform Init
-              working-directory: infra
-              run: terraform init
+      - name: Terraform Init
+        working-directory: infra
+        run: terraform init
 
-            - name: Terraform Apply (prod)
-              working-directory: infra
-              run: |
-                terraform apply -auto-approve \
-                    -var-file=prod.tfvars \
-                    =var="bucket_name=${{ secrets.S3_BUCKET_NAME }}"
+      - name: Terraform Apply (prod)
+        working-directory: infra
+        run: |
+          terraform apply -auto-approve \
+            -var-file=prod.tfvars
 
-            - name: Invoke Prod Endpoint
-              working-directory: infra
-              run: |
-                API=$(terraform output -raw api_invoke_url)
-                ROUTE=$(terraform output -raw route)
-
-                curl -sS -X POST "${API}${ROUTE}" \
-                    -H "content-type: application/json" \
-                    -d '{"text":"This is from a Lambda (prod."}' | jq .
+      - name: Invoke Prod Endpoint
+        working-directory: infra
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+          API=$(terraform output -raw api_invoke_url)
+          curl -sS -X POST "${API}/prod/synthesize" \
+            -H "content-type: application/json" \
+            -d '{"text":"This is from GitHub Actions (prod)."}' | jq .

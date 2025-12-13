@@ -2,7 +2,7 @@ name: Deploy + Test (PR - Beta)
 
 on:
   pull_request:
-    branches: [ main ]
+    branches: [ "main" ]
 
 permissions:
   id-token: write
@@ -13,30 +13,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
 
-      - name: Configure AWS (OIDC)
+      - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: TERRAFORM INIT
+      - name: Terraform Init
         working-directory: infra
         run: terraform init
 
       - name: Terraform Apply (beta)
         working-directory: infra
-        run: terraform apply -auto-approve -var-file=beta.tfvars
+        run: |
+          terraform apply -auto-approve \
+            -var-file=beta.tfvars
 
       - name: Invoke Beta Endpoint
         working-directory: infra
         run: |
+          sudo apt-get update && sudo apt-get install -y jq
           API=$(terraform output -raw api_invoke_url)
-          ROUTE=$(terraform output -raw route)
-
-          curl -sS -X POST "${API}${ROUTE}" \
+          curl -sS -X POST "${API}/beta/synthesize" \
             -H "content-type: application/json" \
-            -d '{"text":"This is from a Lambda (beta)."}'
+            -d '{"text":"This is from GitHub Actions (beta)."}' | jq .
