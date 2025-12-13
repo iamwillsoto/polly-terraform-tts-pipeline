@@ -1,0 +1,5 @@
+aws_region      = "us-east-1"
+environment     = "beta"
+bucket_name     = "REPLACE_ME"
+voice_id        = "Joanna"
+project         = "pixel-learning-tts"

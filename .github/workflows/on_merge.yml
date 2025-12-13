@@ -1,0 +1,45 @@
+name: Deploy + Test (Merge - Prod)
+
+on:
+    push:
+        branches: [ main ]
+
+permissions:
+    id-token: write
+    contents: read
+
+jobs:
+    prod:
+        runs-on: ubuntu latest
+
+        steps:
+            - uses: action/checkout@v4
+
+            - uses: hashicorp/setup-terraform@v3
+
+            - name: Configure AWS (OIDC)
+            - uses: aws-actions/configure-aws-credentials@v4
+              with:
+                role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+                aws-region: ${{ secrets.AWS_REGION }}
+
+            - name: Terraform Init
+              working-directory: infra
+              run: terraform init
+
+            - name: Terraform Apply (prod)
+              working-directory: infra
+              run: |
+                terraform apply -auto-approve \
+                    -var-file=prod.tfvars \
+                    =var="bucket_name=${{ secrets.S3_BUCKET_NAME }}"
+
+            - name: Invoke Prod Endpoint
+              working-directory: infra
+              run: |
+                API=$(terraform output -raw api_invoke_url)
+                ROUTE=$(terraform output -raw route)
+
+                curl -sS -X POST "${API}${ROUTE}" \
+                    -H "content-type: application/json" \
+                    -d '{"text":"This is from a Lambda (prod."}' | jq .
