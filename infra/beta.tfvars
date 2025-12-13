@@ -1,5 +1,5 @@
 aws_region      = "us-east-1"
 environment     = "beta"
-bucket_name     = "REPLACE_ME"
+bucket_name     = "pixel-learning-tts-wsoto"
 voice_id        = "Joanna"
 project         = "pixel-learning-tts"
