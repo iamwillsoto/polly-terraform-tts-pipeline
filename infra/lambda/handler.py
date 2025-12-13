@@ -1,17 +1,17 @@
-import json
-import os
-import boto3
-from datetime import datetime, timezone
-
-polly = boto3.client("polly")
-s3 = boto3.client("s3")
-
-BUCKET = os.environ["BUCKET_NAME"]
-ENV = os.environ.get("ENV_PREFIX", "beta")
-VOICE = os.environ.get("VOICE_ID", "Joanna")
-
 def lambda_handler(event, context):
-    # Parse body safely
+    import json
+    import boto3
+    from datetime import datetime, timezone
+    import os
+
+    polly = boto3.client("polly")
+    s3 = boto3.client("s3")
+
+    BUCKET = os.environ["BUCKET_NAME"]
+    ENV = os.environ["ENVIRONMENT"]
+    VOICE_ID = os.environ.get("VOICE_ID", "Joanna")
+
+    # ---------- Parse request safely ----------
     payload = {}
     body = event.get("body")
 
@@ -22,7 +22,7 @@ def lambda_handler(event, context):
     elif isinstance(event, dict) and "text" in event:
         payload = event
 
-    text = (payload.get("text") or "").strip()   # <-- guarantees text exists
+    text = (payload.get("text") or "").strip()
 
     if not text:
         return {
@@ -31,24 +31,36 @@ def lambda_handler(event, context):
             "body": json.dumps({"error": "Missing 'text' in request body"})
         }
 
+    # ---------- Generate S3 key ----------
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     key = f"polly-audio/{ENV}/{ts}.mp3"
 
-    resp = polly.synthesize_speech(
-        Text=text,
+    # ---------- Call Amazon Polly ----------
+    response = polly.synthesize_speech(
+        Engine="neural",
+        VoiceId=VOICE_ID,
         OutputFormat="mp3",
-        VoiceId=VOICE
+        Text=text
     )
 
+    audio_stream = response.get("AudioStream")
+    if not audio_stream:
+        raise RuntimeError("Polly did not return audio stream")
+
+    # ---------- Upload to S3 ----------
     s3.put_object(
         Bucket=BUCKET,
         Key=key,
-        Body=resp["AudioStream"].read(),
+        Body=audio_stream.read(),
         ContentType="audio/mpeg"
     )
 
+    # ---------- Return success ----------
     return {
         "statusCode": 200,
         "headers": {"content-type": "application/json"},
-        "body": json.dumps({"message": "Audio generated", "s3_uri": f"s3://{BUCKET}/{key}"})
+        "body": json.dumps({
+            "message": "Audio generated successfully",
+            "s3_uri": f"s3://{BUCKET}/{key}"
+        })
     }
