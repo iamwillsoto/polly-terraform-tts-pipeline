@@ -44,8 +44,15 @@ jobs:
       - name: Invoke Prod Endpoint
         working-directory: infra
         run: |
+          sudo apt-get update && sudo apt-get install -y jq
           API=$(terraform output -raw api_invoke_url)
           ROUTE=$(terraform output -raw route)
-          curl -sS -X POST "${API}${ROUTE}" \
+
+          echo "Invoking: ${API}${ROUTE}"
+          curl -i -sS -X POST "${API}${ROUTE}" \
             -H "content-type: application/json" \
-            -d '{"text":"This is from GitHub Actions (prod)."}' | jq .
+            -d '{"text":"This is from GitHub Actions (prod)."}' | tee response.txt
+
+          echo
+          echo "---- Parsed body (if JSON) ----"
+          tail -n 1 response.txt | jq . || true

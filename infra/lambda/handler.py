@@ -1,15 +1,15 @@
 def lambda_handler(event, context):
-    import json
-    import boto3
-    from datetime import datetime, timezone
     import os
+    import json
+    from datetime import datetime, timezone
+    import boto3
+
+    BUCKET = os.environ["BUCKET_NAME"]
+    ENV = os.environ.get("ENV_PREFIX", "beta")   # <- matches Terraform variable name
+    VOICE_ID = os.environ.get("VOICE_ID", "Joanna")
 
     polly = boto3.client("polly")
     s3 = boto3.client("s3")
-
-    BUCKET = os.environ["BUCKET_NAME"]
-    ENV = os.environ["ENVIRONMENT"]
-    VOICE_ID = os.environ.get("VOICE_ID", "Joanna")
 
     # ---------- Parse request safely ----------
     payload = {}

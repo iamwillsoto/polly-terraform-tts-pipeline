@@ -165,7 +165,7 @@ resource "aws_apigatewayv2_route" "route" {
 
 # Allow API Gateway to invoke Lambda
 resource "aws_lambda_permission" "apigw" {
-  statement_id  = "AllowInvokeFromAPIGW"
+  statement_id  = "AllowInvokeFromAPIGW-${var.environment}-${aws_apigatewayv2_api.http_api.id}"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.tts.function_name
   principal     = "apigateway.amazonaws.com"
