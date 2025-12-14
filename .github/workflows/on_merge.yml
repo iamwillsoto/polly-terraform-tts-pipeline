@@ -19,6 +19,11 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
 
+      - name: Install jq
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq
+
       - name: Configure AWS Credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -39,8 +44,8 @@ jobs:
       - name: Invoke Prod Endpoint
         working-directory: infra
         run: |
-          sudo apt-get update && sudo apt-get install -y jq
           API=$(terraform output -raw api_invoke_url)
-          curl -sS -X POST "${API}/prod/synthesize" \
+          ROUTE=$(terraform output -raw route)
+          curl -sS -X POST "${API}${ROUTE}" \
             -H "content-type: application/json" \
             -d '{"text":"This is from GitHub Actions (prod)."}' | jq .
