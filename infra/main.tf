@@ -13,9 +13,6 @@ terraform {
   }
 }
 
-# ----------------------------
-# Variables
-# ----------------------------
 variable "aws_region" {
   type        = string
   description = "AWS region"
@@ -46,15 +43,10 @@ provider "aws" {
   region = var.aws_region
 }
 
-# ----------------------------
-# Locals
-# ----------------------------
 locals {
-  project = "pixel-learning-tts"
-
-  fn_name  = var.environment == "beta" ? "PollyTextToSpeech_Beta" : "PollyTextToSpeech_Prod"
-  api_name = "pixel-learning-tts-${var.environment}-api"
-
+  project    = "pixel-learning-tts"
+  fn_name    = var.environment == "beta" ? "PollyTextToSpeech_Beta" : "PollyTextToSpeech_Prod"
+  api_name   = "pixel-learning-tts-${var.environment}-api"
   route_path = "/${var.environment}/synthesize"
 
   tags = {
@@ -63,18 +55,12 @@ locals {
   }
 }
 
-# ----------------------------
-# Package Lambda (zip infra/lambda/)
-# ----------------------------
 data "archive_file" "lambda_zip" {
   type        = "zip"
   source_dir  = "${path.module}/lambda"
   output_path = "${path.module}/lambda.zip"
 }
 
-# ----------------------------
-# IAM Role for Lambda
-# ----------------------------
 resource "aws_iam_role" "lambda_role" {
   name = "${local.fn_name}-role"
 
@@ -90,62 +76,49 @@ resource "aws_iam_role" "lambda_role" {
   tags = local.tags
 }
 
-# ----------------------------
-# IAM Inline Policy (Logs + Polly + S3 env-scoped + KMS decrypt)
-# NOTE: aws_iam_role_policy does NOT support tags.
-# ----------------------------
 resource "aws_iam_role_policy" "lambda_policy" {
   name = "${local.fn_name}-policy"
   role = aws_iam_role.lambda_role.id
 
+  # NOTE: aws_iam_role_policy does NOT support tags
   policy = jsonencode({
     Version = "2012-10-17",
     Statement = [
-      # CloudWatch Logs
       {
-        Sid    = "AllowCloudWatchLogs"
-        Effect = "Allow"
+        Sid    = "AllowCloudWatchLogs",
+        Effect = "Allow",
         Action = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents"
-        ]
+        ],
         Resource = "*"
       },
-
-      # Polly synth
       {
-        Sid      = "AllowPollySynthesize"
-        Effect   = "Allow"
-        Action   = ["polly:SynthesizeSpeech"]
+        Sid      = "AllowPollySynthesize",
+        Effect   = "Allow",
+        Action   = ["polly:SynthesizeSpeech"],
         Resource = "*"
       },
-
-      # S3 PutObject ONLY to env prefix (beta/prod isolation)
       {
-        Sid      = "AllowWriteToEnvPrefix"
-        Effect   = "Allow"
-        Action   = ["s3:PutObject"]
+        Sid      = "AllowWriteToEnvPrefix",
+        Effect   = "Allow",
+        Action   = ["s3:PutObject"],
         Resource = "arn:aws:s3:::${var.bucket_name}/polly-audio/${var.environment}/*"
       },
-
-      # KMS (defensive: prevents KMSAccessDenied from blocking init/invoke)
       {
-        Sid    = "AllowKmsDecryptForLambdaRuntime"
-        Effect = "Allow"
+        Sid    = "AllowKmsDecryptForLambdaRuntime",
+        Effect = "Allow",
         Action = [
           "kms:Decrypt",
           "kms:GenerateDataKey"
-        ]
+        ],
         Resource = "*"
       }
     ]
   })
 }
 
-# ----------------------------
-# Lambda Function
-# ----------------------------
 resource "aws_lambda_function" "tts" {
   function_name = local.fn_name
   role          = aws_iam_role.lambda_role.arn
@@ -169,9 +142,6 @@ resource "aws_lambda_function" "tts" {
   tags = local.tags
 }
 
-# ----------------------------
-# API Gateway (HTTP API v2)
-# ----------------------------
 resource "aws_apigatewayv2_api" "http_api" {
   name          = local.api_name
   protocol_type = "HTTP"
@@ -200,16 +170,13 @@ resource "aws_apigatewayv2_route" "route" {
 }
 
 resource "aws_lambda_permission" "apigw" {
-  statement_id  = "AllowInvokeFromAPIGW-${var.environment}-${aws_apigatewayv2_api.http_api.id}"
+  statement_id  = "AllowInvokeFromAPIGW-${var.environment}"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.tts.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
 }
 
-# ----------------------------
-# Outputs (workflow expects these)
-# ----------------------------
 output "api_invoke_url" {
   value = aws_apigatewayv2_api.http_api.api_endpoint
 }

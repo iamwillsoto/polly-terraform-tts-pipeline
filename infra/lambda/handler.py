@@ -14,7 +14,6 @@ s3 = boto3.client("s3")
 
 
 def _resp(code: int, payload: dict):
-    # HTTP API v2 is fine with this shape
     return {
         "statusCode": code,
         "headers": {"content-type": "application/json"},
@@ -24,21 +23,17 @@ def _resp(code: int, payload: dict):
 
 
 def _parse_event(event) -> dict:
-    """
-    Supports:
-      - API Gateway HTTP API v2 proxy events (event['body'] is string; may be base64)
-      - direct Lambda invoke with {"text":"..."}
-    """
+    # Supports:
+    # - HTTP API v2 proxy events: event["body"] is JSON string, maybe base64
+    # - direct invoke: {"text":"..."}
     if not isinstance(event, dict):
         return {}
 
-    # direct invoke convenience
     if isinstance(event.get("text"), str):
         return {"text": event["text"]}
 
     body = event.get("body")
 
-    # base64 body (HTTP API v2 can set isBase64Encoded)
     if event.get("isBase64Encoded") is True and isinstance(body, str):
         try:
             body = base64.b64decode(body).decode("utf-8")
@@ -60,10 +55,9 @@ def lambda_handler(event, context):
         env = (os.environ.get("ENVIRONMENT") or "beta").strip().lower()
         voice_id = (os.environ.get("VOICE_ID") or "Joanna").strip()
 
-        # Force visibility in logs
         logger.info("START request_id=%s", getattr(context, "aws_request_id", "n/a"))
-        logger.info("CONFIG env=%s bucket=%s voice_id=%s", env, bucket, voice_id)
-        logger.info("EVENT_TYPE=%s keys=%s", str(type(event)), list(event.keys()) if isinstance(event, dict) else "n/a")
+        logger.info("CONFIG env=%s bucket=%s voice_id=%s", env, bucket or "<EMPTY>", voice_id)
+        logger.info("EVENT keys=%s", list(event.keys()) if isinstance(event, dict) else str(type(event)))
 
         if not bucket:
             return _resp(500, {"error": "BUCKET_NAME is empty in Lambda environment variables"})
@@ -96,9 +90,8 @@ def lambda_handler(event, context):
         )
 
         logger.info("SUCCESS s3_uri=s3://%s/%s", bucket, key)
-        return _resp(200, {"message": "Audio generated successfully", "s3_uri": f"s3://{bucket}/{key}"})
+        return _resp(200, {"message": "OK", "s3_uri": f"s3://{bucket}/{key}"})
 
     except Exception as e:
         logger.exception("Unhandled error")
-        # While debugging: return the actual error detail so we stop flying blind
         return _resp(500, {"error": "Internal error", "detail": str(e)})
