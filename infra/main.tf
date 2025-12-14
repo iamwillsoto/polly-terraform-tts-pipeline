@@ -70,38 +70,39 @@ resource "aws_iam_role_policy" "lambda_policy" {
   role = aws_iam_role.lambda_role.id
 
   policy = jsonencode({
-    Version = "2012-10-17",
+    Version = "2012-10-17"
     Statement = [
+
       # CloudWatch Logs
       {
-        Sid    = "AllowCloudWatchLogs",
-        Effect = "Allow",
+        Sid    = "AllowCloudWatchLogs"
+        Effect = "Allow"
         Action = [
           "logs:CreateLogGroup",
           "logs:CreateLogStream",
           "logs:PutLogEvents"
-        ],
+        ]
         Resource = "*"
       },
 
       # Polly synth
       {
-        Sid    = "AllowPollySynthesize",
-        Effect = "Allow",
+        Sid    = "AllowPollySynthesize"
+        Effect = "Allow"
         Action = [
           "polly:SynthesizeSpeech"
-        ],
+        ]
         Resource = "*"
       },
 
       # S3 PutObject ONLY to env prefix (beta/prod isolation)
       {
-        Sid    = "AllowWriteToEnvPrefix",
-        Effect = "Allow",
+        Sid    = "AllowWriteToEnvPrefix"
+        Effect = "Allow"
         Action = [
           "s3:PutObject"
-        ],
-        Resource = "arn:aws:s3:::${var.bucket_name}/polly-audio/${local.prefix}/*"
+        ]
+        Resource = "arn:aws:s3:::${var.bucket_name}/polly-audio/${var.environment}/*"
       }
     ]
   })
@@ -126,6 +127,7 @@ resource "aws_lambda_function" "tts" {
     variables = {
       BUCKET_NAME = var.bucket_name
       ENVIRONMENT = local.prefix
+      ENV_PREFIX  = local.prefix
       VOICE_ID    = var.voice_id
     }
   }
