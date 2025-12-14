@@ -70,7 +70,7 @@ locals {
   }
 
   # Normalize kms ARN to null if empty string
-  lambda_env_kms_key_arn = trim(var.lambda_env_kms_key_arn) != "" ? trim(var.lambda_env_kms_key_arn) : null
+  lambda_env_kms_key_arn = trimspace(var.lambda_env_kms_key_arn) != "" ? trimspace(var.lambda_env_kms_key_arn) : null
 }
 
 # ----------------------------
