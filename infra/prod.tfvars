@@ -1,5 +1,3 @@
-aws_region  = "us-east-1"
-environment = "prod"
-bucket_name = "pixel-learning-tts-wsoto"
-voice_id    = "Joanna"
-project     = "pixel-learning-tts"
+aws_region   = "us-east-1"
+environment  = "prod"
+voice_id     = "Joanna"

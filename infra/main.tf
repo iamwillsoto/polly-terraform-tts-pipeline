@@ -13,6 +13,35 @@ terraform {
   }
 }
 
+# ----------------------------
+# Variables
+# ----------------------------
+variable "aws_region" {
+  type        = string
+  description = "AWS region"
+  default     = "us-east-1"
+}
+
+variable "environment" {
+  type        = string
+  description = "beta or prod"
+  validation {
+    condition     = contains(["beta", "prod"], var.environment)
+    error_message = "environment must be 'beta' or 'prod'."
+  }
+}
+
+variable "bucket_name" {
+  type        = string
+  description = "Target S3 bucket name"
+}
+
+variable "voice_id" {
+  type        = string
+  description = "Polly voice id"
+  default     = "Joanna"
+}
+
 provider "aws" {
   region = var.aws_region
 }
@@ -22,10 +51,11 @@ provider "aws" {
 # ----------------------------
 locals {
   project = "pixel-learning-tts"
-  prefix  = var.environment # expects "beta" or "prod"
 
   fn_name  = var.environment == "beta" ? "PollyTextToSpeech_Beta" : "PollyTextToSpeech_Prod"
   api_name = "pixel-learning-tts-${var.environment}-api"
+
+  route_path = "/${var.environment}/synthesize"
 
   tags = {
     Project     = local.project
@@ -52,9 +82,7 @@ resource "aws_iam_role" "lambda_role" {
     Version = "2012-10-17",
     Statement = [{
       Effect = "Allow",
-      Principal = {
-        Service = "lambda.amazonaws.com"
-      },
+      Principal = { Service = "lambda.amazonaws.com" },
       Action = "sts:AssumeRole"
     }]
   })
@@ -63,16 +91,16 @@ resource "aws_iam_role" "lambda_role" {
 }
 
 # ----------------------------
-# IAM Inline Policy (Logs + Polly + S3 env-scoped)
+# IAM Inline Policy (Logs + Polly + S3 env-scoped + KMS decrypt)
+# NOTE: aws_iam_role_policy does NOT support tags.
 # ----------------------------
 resource "aws_iam_role_policy" "lambda_policy" {
   name = "${local.fn_name}-policy"
   role = aws_iam_role.lambda_role.id
 
   policy = jsonencode({
-    Version = "2012-10-17"
+    Version = "2012-10-17",
     Statement = [
-
       # CloudWatch Logs
       {
         Sid    = "AllowCloudWatchLogs"
@@ -87,11 +115,9 @@ resource "aws_iam_role_policy" "lambda_policy" {
 
       # Polly synth
       {
-        Sid    = "AllowPollySynthesize"
-        Effect = "Allow"
-        Action = [
-          "polly:SynthesizeSpeech"
-        ]
+        Sid      = "AllowPollySynthesize"
+        Effect   = "Allow"
+        Action   = ["polly:SynthesizeSpeech"]
         Resource = "*"
       },
 
@@ -99,10 +125,19 @@ resource "aws_iam_role_policy" "lambda_policy" {
       {
         Sid    = "AllowWriteToEnvPrefix"
         Effect = "Allow"
-        Action = [
-          "s3:PutObject"
-        ]
+        Action = ["s3:PutObject"]
         Resource = "arn:aws:s3:::${var.bucket_name}/polly-audio/${var.environment}/*"
+      },
+
+      # KMS (defensive: prevents KMSAccessDenied from blocking init/invoke)
+      {
+        Sid    = "AllowKmsDecryptForLambdaRuntime"
+        Effect = "Allow"
+        Action = [
+          "kms:Decrypt",
+          "kms:GenerateDataKey"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -117,7 +152,7 @@ resource "aws_lambda_function" "tts" {
   runtime       = "python3.12"
   handler       = "handler.lambda_handler"
 
-  timeout     = 15
+  timeout     = 30
   memory_size = 256
 
   filename         = data.archive_file.lambda_zip.output_path
@@ -126,8 +161,7 @@ resource "aws_lambda_function" "tts" {
   environment {
     variables = {
       BUCKET_NAME = var.bucket_name
-      ENVIRONMENT = local.prefix
-      ENV_PREFIX  = local.prefix
+      ENVIRONMENT = var.environment
       VOICE_ID    = var.voice_id
     }
   }
@@ -136,7 +170,7 @@ resource "aws_lambda_function" "tts" {
 }
 
 # ----------------------------
-# API Gateway (HTTP API)
+# API Gateway (HTTP API v2)
 # ----------------------------
 resource "aws_apigatewayv2_api" "http_api" {
   name          = local.api_name
@@ -161,15 +195,33 @@ resource "aws_apigatewayv2_integration" "lambda" {
 
 resource "aws_apigatewayv2_route" "route" {
   api_id    = aws_apigatewayv2_api.http_api.id
-  route_key = "POST /${local.prefix}/synthesize"
+  route_key = "POST ${local.route_path}"
   target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
-# Allow API Gateway to invoke Lambda
 resource "aws_lambda_permission" "apigw" {
   statement_id  = "AllowInvokeFromAPIGW-${var.environment}-${aws_apigatewayv2_api.http_api.id}"
   action        = "lambda:InvokeFunction"
   function_name = aws_lambda_function.tts.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.http_api.execution_arn}/*/*"
+}
+
+# ----------------------------
+# Outputs (workflow expects these)
+# ----------------------------
+output "api_invoke_url" {
+  value = aws_apigatewayv2_api.http_api.api_endpoint
+}
+
+output "route" {
+  value = local.route_path
+}
+
+output "s3_prefix" {
+  value = "s3://${var.bucket_name}/polly-audio/${var.environment}/"
+}
+
+output "lambda_name" {
+  value = aws_lambda_function.tts.function_name
 }

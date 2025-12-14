@@ -14,14 +14,16 @@ s3 = boto3.client("s3")
 
 
 def _resp(code: int, payload: dict):
+    # HTTP API v2 is fine with this shape
     return {
         "statusCode": code,
         "headers": {"content-type": "application/json"},
         "body": json.dumps(payload),
+        "isBase64Encoded": False,
     }
 
 
-def _parse_event(event: dict) -> dict:
+def _parse_event(event) -> dict:
     """
     Supports:
       - API Gateway HTTP API v2 proxy events (event['body'] is string; may be base64)
@@ -36,7 +38,7 @@ def _parse_event(event: dict) -> dict:
 
     body = event.get("body")
 
-    # handle base64 bodies
+    # base64 body (HTTP API v2 can set isBase64Encoded)
     if event.get("isBase64Encoded") is True and isinstance(body, str):
         try:
             body = base64.b64decode(body).decode("utf-8")
@@ -54,12 +56,17 @@ def _parse_event(event: dict) -> dict:
 
 def lambda_handler(event, context):
     try:
-        bucket = os.environ["BUCKET_NAME"]
+        bucket = (os.environ.get("BUCKET_NAME") or "").strip()
         env = (os.environ.get("ENVIRONMENT") or "beta").strip().lower()
         voice_id = (os.environ.get("VOICE_ID") or "Joanna").strip()
 
-        logger.info("START env=%s bucket=%s voice_id=%s", env, bucket, voice_id)
-        logger.info("event_keys=%s", list(event.keys()) if isinstance(event, dict) else str(type(event)))
+        # Force visibility in logs
+        logger.info("START request_id=%s", getattr(context, "aws_request_id", "n/a"))
+        logger.info("CONFIG env=%s bucket=%s voice_id=%s", env, bucket, voice_id)
+        logger.info("EVENT_TYPE=%s keys=%s", str(type(event)), list(event.keys()) if isinstance(event, dict) else "n/a")
+
+        if not bucket:
+            return _resp(500, {"error": "BUCKET_NAME is empty in Lambda environment variables"})
 
         payload = _parse_event(event)
         text = (payload.get("text") or "").strip()
@@ -68,7 +75,7 @@ def lambda_handler(event, context):
 
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         key = f"polly-audio/{env}/{ts}.mp3"
-        logger.info("writing_s3_key=%s", key)
+        logger.info("S3_KEY=%s", key)
 
         polly_resp = polly.synthesize_speech(
             Engine="neural",
@@ -93,5 +100,5 @@ def lambda_handler(event, context):
 
     except Exception as e:
         logger.exception("Unhandled error")
-        # keep detail visible while debugging
+        # While debugging: return the actual error detail so we stop flying blind
         return _resp(500, {"error": "Internal error", "detail": str(e)})
