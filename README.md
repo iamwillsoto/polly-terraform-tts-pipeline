@@ -82,6 +82,7 @@ curl -X POST "<API_URL>/prod/synthesize" \
   "message": "OK",
   "s3_uri": "s3://<bucket>/polly-audio/prod/20251215T014010Z.mp3"
 }
+```
 
 ## Business Value
 
