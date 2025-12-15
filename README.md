@@ -77,50 +77,28 @@ curl -X POST "<API_URL>/prod/synthesize" \
   -H "content-type: application/json" \
   -d '{"text":"This is live production"}'
 
-Example Response
+### Example Response
 {
   "message": "OK",
   "s3_uri": "s3://<bucket>/polly-audio/prod/20251215T014010Z.mp3"
 }
 
-Business Value
+## Business Value
 
 This solution enables organizations to:
 
-Automate audio generation
+- **Automate audio generation**  
+  Convert documentation, training content, articles, or notifications into audio automatically.
 
-Convert documentation, training content, articles, or notifications into audio automatically
+- **Scale without servers**  
+  Fully serverless architecture with on-demand execution.
 
-Scale without servers
+- **Reduce operational overhead**  
+  No EC2, no container management, no scaling logic required.
 
-Fully serverless architecture with on-demand execution
+- **Support accessibility initiatives**  
+  Audio versions of written content for visually impaired users.
 
-Reduce operational overhead
+- **Integrate easily**  
+  Simple HTTP API suitable for web applications, CMS platforms, and internal tools.
 
-No EC2, no container management, no scaling logic required
-
-Support accessibility initiatives
-
-Audio versions of written content for visually impaired users
-
-Integrate easily
-
-Simple HTTP API suitable for web apps, CMS platforms, and internal tools
-
-Maintain production safety
-
-Environment isolation, encrypted configuration, and CI/CD guardrails
-
-Key Engineering Outcomes
-
-Remote Terraform state with environment isolation
-
-Secure KMS-encrypted Lambda configuration
-
-Least-privilege IAM policies
-
-Fully automated deployments via GitHub Actions
-
-Deterministic, reproducible infrastructure
-
-Production-grade error handling and logging
