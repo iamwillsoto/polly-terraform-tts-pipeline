@@ -84,22 +84,26 @@ curl -X POST "<API_URL>/prod/synthesize" \
 }
 ```
 
-## Business Value
+## Business & Engineering Value
 
-This solution enables organizations to:
+This solution delivers both **direct business impact** and **production-grade cloud engineering practices**.
 
-- **Automate audio generation**  
-  Convert documentation, training content, articles, or notifications into audio automatically.
+**Business Impact**
+- **Automated audio generation**  
+  Converts documentation, training material, articles, and notifications into audio automatically.
+- **Serverless scalability**  
+  Fully managed, on-demand execution with no servers to provision or maintain.
+- **Lower operational cost**  
+  No EC2, no containers, no scaling logic—pay only per request.
+- **Improved accessibility**  
+  Enables audio delivery for visually impaired users and audio-first experiences.
+- **Easy integration**  
+  Simple HTTPS API compatible with web apps, CMS platforms, and internal tools.
 
-- **Scale without servers**  
-  Fully serverless architecture with on-demand execution.
-
-- **Reduce operational overhead**  
-  No EC2, no container management, no scaling logic required.
-
-- **Support accessibility initiatives**  
-  Audio versions of written content for visually impaired users.
-
-- **Integrate easily**  
-  Simple HTTP API suitable for web applications, CMS platforms, and internal tools.
+**Engineering Outcomes**
+- Infrastructure as Code using **Terraform** with remote, environment-isolated state.
+- Secure **KMS-encrypted Lambda configuration** and least-privilege IAM policies.
+- Fully serverless architecture using **Lambda, API Gateway, Polly, and S3**.
+- Automated **CI/CD pipelines with GitHub Actions** for beta and production deployments.
+- Deterministic, reproducible deployments aligned with real-world AWS production standards.
 
