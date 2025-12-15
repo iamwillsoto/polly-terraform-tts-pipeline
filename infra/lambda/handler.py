@@ -1,7 +1,7 @@
 import os
 import json
-import logging
 import base64
+import logging
 from datetime import datetime, timezone
 
 import boto3
@@ -23,17 +23,18 @@ def _resp(code: int, payload: dict):
 
 
 def _parse_event(event) -> dict:
-    # Supports:
-    # - HTTP API v2 proxy events: event["body"] is JSON string, maybe base64
-    # - direct invoke: {"text":"..."}
+    # Direct invoke: {"text":"..."}
+    if isinstance(event, dict) and isinstance(event.get("text"), str):
+        return {"text": event["text"]}
+
     if not isinstance(event, dict):
         return {}
 
-    if isinstance(event.get("text"), str):
-        return {"text": event["text"]}
-
     body = event.get("body")
+    if body is None:
+        return {}
 
+    # HTTP API v2 can base64-encode the body
     if event.get("isBase64Encoded") is True and isinstance(body, str):
         try:
             body = base64.b64decode(body).decode("utf-8")
@@ -41,7 +42,10 @@ def _parse_event(event) -> dict:
             return {}
 
     if isinstance(body, str) and body.strip():
-        return json.loads(body)
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            return {}
 
     if isinstance(body, dict):
         return body
@@ -50,22 +54,28 @@ def _parse_event(event) -> dict:
 
 
 def lambda_handler(event, context):
+    request_id = getattr(context, "aws_request_id", "n/a")
+
     try:
         bucket = (os.environ.get("BUCKET_NAME") or "").strip()
         env = (os.environ.get("ENVIRONMENT") or "beta").strip().lower()
         voice_id = (os.environ.get("VOICE_ID") or "Joanna").strip()
 
-        logger.info("START request_id=%s", getattr(context, "aws_request_id", "n/a"))
+        # Force visibility: these should appear in CloudWatch once KMS is fixed
+        logger.info("START request_id=%s", request_id)
         logger.info("CONFIG env=%s bucket=%s voice_id=%s", env, bucket or "<EMPTY>", voice_id)
         logger.info("EVENT keys=%s", list(event.keys()) if isinstance(event, dict) else str(type(event)))
 
         if not bucket:
-            return _resp(500, {"error": "BUCKET_NAME is empty in Lambda environment variables"})
+            return _resp(500, {
+                "error": "BUCKET_NAME is empty in Lambda env vars",
+                "request_id": request_id
+            })
 
         payload = _parse_event(event)
         text = (payload.get("text") or "").strip()
         if not text:
-            return _resp(400, {"error": "Missing 'text' in request body"})
+            return _resp(400, {"error": "Missing 'text' in request body", "request_id": request_id})
 
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         key = f"polly-audio/{env}/{ts}.mp3"
@@ -90,8 +100,8 @@ def lambda_handler(event, context):
         )
 
         logger.info("SUCCESS s3_uri=s3://%s/%s", bucket, key)
-        return _resp(200, {"message": "OK", "s3_uri": f"s3://{bucket}/{key}"})
+        return _resp(200, {"message": "OK", "s3_uri": f"s3://{bucket}/{key}", "request_id": request_id})
 
     except Exception as e:
         logger.exception("Unhandled error")
-        return _resp(500, {"error": "Internal error", "detail": str(e)})
+        return _resp(500, {"error": "Internal error", "detail": str(e), "request_id": request_id})

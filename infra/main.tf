@@ -14,7 +14,7 @@ terraform {
 }
 
 # ----------------------------
-# Variables
+# Variables (kept in this file so variables.tf is not needed)
 # ----------------------------
 variable "aws_region" {
   type        = string
@@ -42,13 +42,10 @@ variable "voice_id" {
   default     = "Joanna"
 }
 
-# NEW: Customer-managed KMS key ARN for Lambda env var encryption
-# Example:
-# arn:aws:kms:us-east-1:502487622733:key/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-variable "lambda_env_kms_key_arn" {
+variable "project" {
   type        = string
-  description = "Customer-managed KMS key ARN used to encrypt Lambda environment variables"
-  default     = ""
+  description = "Project tag/name"
+  default     = "pixel-learning-tts"
 }
 
 provider "aws" {
@@ -59,18 +56,14 @@ provider "aws" {
 # Locals
 # ----------------------------
 locals {
-  project   = "pixel-learning-tts"
-  fn_name   = var.environment == "beta" ? "PollyTextToSpeech_Beta" : "PollyTextToSpeech_Prod"
-  api_name  = "pixel-learning-tts-${var.environment}-api"
+  fn_name    = var.environment == "beta" ? "PollyTextToSpeech_Beta" : "PollyTextToSpeech_Prod"
+  api_name   = "${var.project}-${var.environment}-api"
   route_path = "/${var.environment}/synthesize"
 
   tags = {
-    Project     = local.project
+    Project     = var.project
     Environment = var.environment
   }
-
-  # Normalize kms ARN to null if empty string
-  lambda_env_kms_key_arn = trimspace(var.lambda_env_kms_key_arn) != "" ? trimspace(var.lambda_env_kms_key_arn) : null
 }
 
 # ----------------------------
@@ -101,7 +94,55 @@ resource "aws_iam_role" "lambda_role" {
 }
 
 # ----------------------------
-# IAM Inline Policy (Logs + Polly + S3 env-scoped + KMS for env encryption)
+# KMS CMK for Lambda environment variable encryption (THIS fixes aws/lambda key issue)
+# ----------------------------
+resource "aws_kms_key" "lambda_env" {
+  description             = "CMK for ${local.fn_name} environment variable encryption"
+  deletion_window_in_days = 7
+  enable_key_rotation     = true
+
+  tags = local.tags
+}
+
+resource "aws_kms_alias" "lambda_env" {
+  name          = "alias/${var.project}-${var.environment}-lambda-env"
+  target_key_id = aws_kms_key.lambda_env.key_id
+}
+
+# Key policy: allow account root full admin + allow THIS lambda role to use it
+data "aws_caller_identity" "current" {}
+
+resource "aws_kms_key_policy" "lambda_env" {
+  key_id = aws_kms_key.lambda_env.key_id
+
+  policy = jsonencode({
+    Version = "2012-10-17",
+    Statement = [
+      {
+        Sid       = "AllowAccountRootAdmin",
+        Effect    = "Allow",
+        Principal = { AWS = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:root" },
+        Action    = "kms:*",
+        Resource  = "*"
+      },
+      {
+        Sid       = "AllowLambdaRoleUseOfKey",
+        Effect    = "Allow",
+        Principal = { AWS = aws_iam_role.lambda_role.arn },
+        Action = [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:GenerateDataKey",
+          "kms:DescribeKey"
+        ],
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+# ----------------------------
+# IAM Inline Policy (Logs + Polly + S3 env-scoped + KMS)
 # NOTE: aws_iam_role_policy does NOT support tags.
 # ----------------------------
 resource "aws_iam_role_policy" "lambda_policy" {
@@ -110,51 +151,48 @@ resource "aws_iam_role_policy" "lambda_policy" {
 
   policy = jsonencode({
     Version = "2012-10-17",
-    Statement = concat(
-      [
-        # CloudWatch Logs
-        {
-          Sid    = "AllowCloudWatchLogs",
-          Effect = "Allow",
-          Action = [
-            "logs:CreateLogGroup",
-            "logs:CreateLogStream",
-            "logs:PutLogEvents"
-          ],
-          Resource = "*"
-        },
+    Statement = [
+      # CloudWatch Logs
+      {
+        Sid    = "AllowCloudWatchLogs",
+        Effect = "Allow",
+        Action = [
+          "logs:CreateLogGroup",
+          "logs:CreateLogStream",
+          "logs:PutLogEvents"
+        ],
+        Resource = "*"
+      },
 
-        # Polly synth
-        {
-          Sid      = "AllowPollySynthesize",
-          Effect   = "Allow",
-          Action   = ["polly:SynthesizeSpeech"],
-          Resource = "*"
-        },
+      # Polly
+      {
+        Sid      = "AllowPollySynthesize",
+        Effect   = "Allow",
+        Action   = ["polly:SynthesizeSpeech"],
+        Resource = "*"
+      },
 
-        # S3 PutObject ONLY to env prefix (beta/prod isolation)
-        {
-          Sid    = "AllowWriteToEnvPrefix",
-          Effect = "Allow",
-          Action = ["s3:PutObject"],
-          Resource = "arn:aws:s3:::${var.bucket_name}/polly-audio/${var.environment}/*"
-        }
-      ],
+      # S3 write only to env prefix
+      {
+        Sid      = "AllowWriteToEnvPrefix",
+        Effect   = "Allow",
+        Action   = ["s3:PutObject"],
+        Resource = "arn:aws:s3:::${var.bucket_name}/polly-audio/${var.environment}/*"
+      },
 
-      # Only add KMS permissions if lambda_env_kms_key_arn is provided
-      local.lambda_env_kms_key_arn == null ? [] : [
-        {
-          Sid    = "AllowKmsForLambdaEnvEncryption",
-          Effect = "Allow",
-          Action = [
-            "kms:Decrypt",
-            "kms:GenerateDataKey",
-            "kms:DescribeKey"
-          ],
-          Resource = local.lambda_env_kms_key_arn
-        }
-      ]
-    )
+      # Allow Lambda runtime to use the CMK we created (scope to this key)
+      {
+        Sid    = "AllowKmsForLambdaEnvEncryption",
+        Effect = "Allow",
+        Action = [
+          "kms:Decrypt",
+          "kms:Encrypt",
+          "kms:GenerateDataKey",
+          "kms:DescribeKey"
+        ],
+        Resource = aws_kms_key.lambda_env.arn
+      }
+    ]
   })
 }
 
@@ -173,8 +211,8 @@ resource "aws_lambda_function" "tts" {
   filename         = data.archive_file.lambda_zip.output_path
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
 
-  # NEW: force Lambda env var encryption to your CMK (if provided)
-  kms_key_arn = local.lambda_env_kms_key_arn
+  # Force Lambda to use our CMK (not aws/lambda managed key)
+  kms_key_arn = aws_kms_key.lambda_env.arn
 
   environment {
     variables = {
@@ -185,6 +223,8 @@ resource "aws_lambda_function" "tts" {
   }
 
   tags = local.tags
+
+  depends_on = [aws_kms_key_policy.lambda_env]
 }
 
 # ----------------------------
@@ -226,7 +266,7 @@ resource "aws_lambda_permission" "apigw" {
 }
 
 # ----------------------------
-# Outputs
+# Outputs (kept in this file so outputs.tf is not needed)
 # ----------------------------
 output "api_invoke_url" {
   value = aws_apigatewayv2_api.http_api.api_endpoint
@@ -242,4 +282,8 @@ output "s3_prefix" {
 
 output "lambda_name" {
   value = aws_lambda_function.tts.function_name
+}
+
+output "lambda_env_kms_key_arn" {
+  value = aws_kms_key.lambda_env.arn
 }
